@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
@@ -65,14 +67,15 @@ impl Coro {
         }
     }
 
-    fn run_with_context<F>(
+    fn run_with_context<F, FResult>(
         &self,
         gen: &PyObject,
         vm: &VirtualMachine,
         func: F,
     ) -> PyResult<ExecutionResult>
     where
-        F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
+        F: FnOnce(FrameRef) -> FResult,
+        FResult: Future<Output = PyResult<ExecutionResult>>,
     {
         if self.running.compare_exchange(false, true).is_err() {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(gen, vm))));

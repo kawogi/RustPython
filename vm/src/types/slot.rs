@@ -873,13 +873,13 @@ pub trait Callable: PyPayload {
     fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::slot_call(&zelf, args.bind(vm)?, vm)
     }
-    fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
+    async fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
 #[pyclass]
 pub trait GetDescriptor: PyPayload {
     #[pyslot]
-    fn descr_get(
+    async fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,

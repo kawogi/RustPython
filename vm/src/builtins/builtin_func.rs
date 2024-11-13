@@ -65,7 +65,7 @@ impl PyNativeFunction {
 impl Callable for PyNativeFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(z) = &zelf.zelf {
             args.prepend_arg(z.clone());
         }
@@ -221,7 +221,7 @@ impl Comparable for PyNativeMethod {
 impl Callable for PyNativeMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = &zelf.func.zelf {
             args.prepend_arg(zelf.clone());
         }

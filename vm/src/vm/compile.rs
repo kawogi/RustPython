@@ -55,7 +55,12 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+    pub async fn run_code_string(
+        &self,
+        scope: Scope,
+        source: &str,
+        source_path: String,
+    ) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path.clone())
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
@@ -65,15 +70,15 @@ impl VirtualMachine {
             self.new_pyobj(source_path),
             self,
         )?;
-        self.run_code_obj(code_obj, scope)
+        self.run_code_obj(code_obj, scope).await
     }
 
-    pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
+    pub async fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         // trace!("Code object: {:?}", code_obj.borrow());
-        self.run_code_obj(code_obj, scope)
+        self.run_code_obj(code_obj, scope).await
     }
 }
 

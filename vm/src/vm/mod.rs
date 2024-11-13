@@ -41,12 +41,12 @@ use nix::{
     sys::signal::{kill, sigaction, SaFlags, SigAction, SigSet, Signal::SIGINT},
     unistd::getpid,
 };
-use std::sync::atomic::AtomicBool;
 use std::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
 };
+use std::{future::Future, sync::atomic::AtomicBool};
 
 pub use context::Context;
 pub use interpreter::Interpreter;
@@ -396,9 +396,9 @@ impl VirtualMachine {
         self.signal_rx = Some(signal_rx);
     }
 
-    pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
+    pub async fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
         let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(&self.ctx);
-        self.run_frame(frame)
+        self.run_frame(frame).await
     }
 
     #[cold]
@@ -422,8 +422,18 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn run_frame(&self, frame: FrameRef) -> PyResult {
-        match self.with_frame(frame, |f| f.run(self))? {
+    pub async fn run_frame(&self, frame: FrameRef) -> PyResult {
+        let result = self
+            .with_recursion("", || {
+                self.frames.borrow_mut().push(frame.clone());
+                let result = frame.run(self);
+                // defer dec frame
+                let _popped = self.frames.borrow_mut().pop();
+                result
+            })
+            .await?;
+
+        match result {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
         }
@@ -436,15 +446,27 @@ impl VirtualMachine {
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
-    pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
+    pub async fn with_recursion<
+        R,
+        F: FnOnce() -> FResult,
+        FResult: Future<Output = PyResult<R>>,
+    >(
+        &self,
+        _where: &str,
+        f: F,
+    ) -> PyResult<R> {
         self.check_recursive_call(_where)?;
         self.recursion_depth.set(self.recursion_depth.get() + 1);
         let result = f();
         self.recursion_depth.set(self.recursion_depth.get() - 1);
-        result
+        result.await
     }
 
-    pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+    pub async fn with_frame<
+        R,
+        F: FnOnce(FrameRef) -> FResult,
+        FResult: Future<Output = PyResult<R>>,
+    >(
         &self,
         frame: FrameRef,
         f: F,
@@ -456,6 +478,7 @@ impl VirtualMachine {
             let _popped = self.frames.borrow_mut().pop();
             result
         })
+        .await
     }
 
     /// Returns a basic CompileOpts instance with options accurate to the vm. Used

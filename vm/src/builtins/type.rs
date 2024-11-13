@@ -1195,7 +1195,7 @@ impl SetAttr for PyType {
 
 impl Callable for PyType {
     type Args = FuncArgs;
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 

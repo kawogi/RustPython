@@ -29,7 +29,7 @@ impl PyPayload for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }

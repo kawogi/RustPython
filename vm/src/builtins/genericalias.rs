@@ -351,7 +351,7 @@ impl AsNumber for PyGenericAlias {
 
 impl Callable for PyGenericAlias {
     type Args = FuncArgs;
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
             if let Err(exc) = obj.set_attr(identifier!(vm, __orig_class__), zelf.to_owned(), vm) {
                 if !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)

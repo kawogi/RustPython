@@ -93,7 +93,7 @@ impl GetDescriptor for PyMethodDescriptor {
 impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.method.func)(vm, args)
     }
 }

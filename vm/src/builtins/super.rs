@@ -190,7 +190,7 @@ impl GetAttr for PySuper {
 }
 
 impl GetDescriptor for PySuper {
-    fn descr_get(
+    async fn descr_get(
         zelf_obj: PyObjectRef,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
@@ -216,7 +216,7 @@ impl GetDescriptor for PySuper {
                 (obj, typ)
             };
             let obj = vm.unwrap_or_none(obj);
-            PyType::call(zelf.class(), (typ, obj).into_args(vm), vm)
+            PyType::call(zelf.class(), (typ, obj).into_args(vm), vm).await
         }
     }
 }

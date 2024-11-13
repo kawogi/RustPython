@@ -220,8 +220,98 @@ impl Frame {
 }
 
 impl Py<Frame> {
-    #[inline(always)]
-    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
+    // #[inline(always)]
+    // fn with_exec_<R, FnResult: Future<Output = R>>(
+    //     &self,
+    //     f: impl FnOnce(ExecutingFrame) -> FnResult,
+    // ) -> R {
+    //     let mut state = self.state.lock();
+    //     let exec = ExecutingFrame {
+    //         code: &self.code,
+    //         fastlocals: &self.fastlocals,
+    //         cells_frees: &self.cells_frees,
+    //         locals: &self.locals,
+    //         globals: &self.globals,
+    //         builtins: &self.builtins,
+    //         lasti: &self.lasti,
+    //         object: self,
+    //         state: &mut state,
+    //     };
+    //     f(exec)
+    // }
+
+    // #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    pub async fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        let mut state = self.state.lock();
+        let mut exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+
+        exec.run(vm).await
+
+        // self.with_exec(|mut exec| exec.run(vm))
+    }
+
+    pub(crate) async fn resume(
+        &self,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<ExecutionResult> {
+        let mut state = self.state.lock();
+        let mut exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+
+        if let Some(value) = value {
+            exec.push_value(value)
+        }
+        exec.run(vm).await
+        // self.with_exec(|mut exec| {
+        // })
+    }
+
+    pub(crate) async fn gen_throw(
+        &self,
+        vm: &VirtualMachine,
+        exc_type: PyObjectRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+    ) -> PyResult<ExecutionResult> {
+        let mut state = self.state.lock();
+        let mut exec = ExecutingFrame {
+            code: &self.code,
+            fastlocals: &self.fastlocals,
+            cells_frees: &self.cells_frees,
+            locals: &self.locals,
+            globals: &self.globals,
+            builtins: &self.builtins,
+            lasti: &self.lasti,
+            object: self,
+            state: &mut state,
+        };
+
+        exec.gen_throw(vm, exc_type, exc_val, exc_tb).await
+
+        // self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
+    }
+
+    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
@@ -234,39 +324,10 @@ impl Py<Frame> {
             object: self,
             state: &mut state,
         };
-        f(exec)
-    }
 
-    // #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.run(vm))
-    }
+        exec.yield_from_target().map(PyObject::to_owned)
 
-    pub(crate) fn resume(
-        &self,
-        value: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| {
-            if let Some(value) = value {
-                exec.push_value(value)
-            }
-            exec.run(vm)
-        })
-    }
-
-    pub(crate) fn gen_throw(
-        &self,
-        vm: &VirtualMachine,
-        exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        exc_tb: PyObjectRef,
-    ) -> PyResult<ExecutionResult> {
-        self.with_exec(|mut exec| exec.gen_throw(vm, exc_type, exc_val, exc_tb))
-    }
-
-    pub fn yield_from_target(&self) -> Option<PyObjectRef> {
-        self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
+        // self.with_exec(|exec| exec.yield_from_target().map(PyObject::to_owned))
     }
 
     pub fn is_internal_frame(&self) -> bool {
@@ -344,7 +405,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+    async fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
         let instrs = &self.code.instructions;
@@ -419,7 +480,7 @@ impl ExecutingFrame<'_> {
 
     /// Ok(Err(e)) means that an error occurred while calling throw() and the generator should try
     /// sending it
-    fn gen_throw(
+    async fn gen_throw(
         &mut self,
         vm: &VirtualMachine,
         exc_type: PyObjectRef,
@@ -442,23 +503,29 @@ impl ExecutingFrame<'_> {
                         .to_pyresult(vm), // FIXME:
                     Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                 };
-                return ret.map(ExecutionResult::Yield).or_else(|err| {
-                    self.pop_value();
-                    self.update_lasti(|i| *i += 1);
-                    if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-                        let val = vm.unwrap_or_none(err.get_arg(0));
-                        self.push_value(val);
-                        self.run(vm)
-                    } else {
-                        let (ty, val, tb) = vm.split_exception(err);
-                        self.gen_throw(vm, ty, val, tb)
+
+                return match ret {
+                    Ok(result) => PyResult::Ok(ExecutionResult::Yield(result)),
+                    Err(err) => {
+                        self.pop_value();
+                        self.update_lasti(|i| *i += 1);
+                        let result = if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+                            let val = vm.unwrap_or_none(err.get_arg(0));
+                            self.push_value(val);
+                            self.run(vm).await
+                        } else {
+                            let (ty, val, tb) = vm.split_exception(err);
+                            // pinning is required for recursive calls
+                            Box::pin(self.gen_throw(vm, ty, val, tb)).await
+                        };
+                        result
                     }
-                });
+                };
             }
         }
         let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
         match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-            Ok(None) => self.run(vm),
+            Ok(None) => self.run(vm).await,
             Ok(Some(result)) => Ok(result),
             Err(exception) => Err(exception),
         }

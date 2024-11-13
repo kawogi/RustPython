@@ -136,7 +136,7 @@ impl PyStaticMethod {
 impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.lock().clone();
         callable.call(args, vm)
     }

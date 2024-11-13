@@ -296,7 +296,7 @@ impl PyFunction {
         Ok(())
     }
 
-    pub fn invoke_with_locals(
+    pub async fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
         locals: Option<ArgMapping>,
@@ -345,13 +345,13 @@ impl PyFunction {
             (true, false) => Ok(PyGenerator::new(frame, self.name()).into_pyobject(vm)),
             (false, true) => Ok(PyCoroutine::new(frame, self.name()).into_pyobject(vm)),
             (true, true) => Ok(PyAsyncGen::new(frame, self.name()).into_pyobject(vm)),
-            (false, false) => vm.run_frame(frame),
+            (false, false) => vm.run_frame(frame).await,
         }
     }
 
     #[inline(always)]
-    pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        self.invoke_with_locals(func_args, None, vm)
+    pub async fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        self.invoke_with_locals(func_args, None, vm).await
     }
 }
 
@@ -533,8 +533,8 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        zelf.invoke(args, vm)
+    async fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.invoke(args, vm).await
     }
 }
 
@@ -559,7 +559,7 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    async fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         zelf.function.call(args, vm)
     }
